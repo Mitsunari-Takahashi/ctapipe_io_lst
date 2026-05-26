@@ -1026,8 +1026,8 @@ class LSTEventSource(EventSource):
             min_okay = (image >= self.min_flatfield_adc)
             max_okay = (image <= self.max_flatfield_adc)
             self.log.warning(
-                f'  {len(min_okay)} pixels have a larger summed ADC than the minimum limit.\n'
-                f'  {len(max_okay)} pixels have a smaller summed ADC than the maximal limit.\n'
+                f'  {np.count_nonzero(min_okay)} pixels have a larger summed ADC than the minimum limit.\n'
+                f'  {np.count_nonzero(max_okay)} pixels have a smaller summed ADC than the maximal limit.\n'
             )
 
     def fill_pointing_info(self, array_event):
