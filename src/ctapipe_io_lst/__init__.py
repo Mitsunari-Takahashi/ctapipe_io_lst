@@ -56,6 +56,11 @@ from .constants import (
 from .evb_preprocessing import get_processings_for_trigger_bits, EVBPreprocessingFlag
 from .compat import CTAPIPE_GE_0_20, CTAPIPE_GE_0_21
 
+# For camera display
+from ctapipe.coordinates import EngineeringCameraFrame
+from ctapipe.visualization import CameraDisplay
+from matplotlib import pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 __all__ = [
     'LSTEventSource',
@@ -97,7 +102,7 @@ def get_channel_info(pixel_status):
         2: low-gain read out
         3: both gains read out
     '''
-    return (pixel_status & PixelStatus.BOTH_GAINS_STORED) >> 2
+    return (pixel_status & Pixel2Status.BOTH_GAINS_STORED) >> 2
 
 
 def load_camera_geometry():
@@ -152,6 +157,7 @@ class LSTEventSource(EventSource):
     """
     EventSource for LST R0 data.
     """
+
     min_flatfield_adc = Float(
         default_value=3000.0,
         help=(
@@ -297,6 +303,9 @@ class LSTEventSource(EventSource):
             Any of the traitlets. See ``LSTEventSource.class_print_help``
         '''
         super().__init__(input_url=input_url, **kwargs)
+
+        # For camera display plot of the FLATFIELD events
+        self.event_tagging_counter = 0
 
         self.multi_file = MultiFiles(
             self.input_url,
@@ -998,6 +1007,22 @@ class LSTEventSource(EventSource):
         else:
             image = waveform.sum(axis=1)
 
+        self.event_tagging_counter += 1
+        def plot_camera_display(title, save_dir):
+            plt.figure()
+            camera_geom = load_camera_geometry()
+            camera_geom = camera_geom.transform_to(EngineeringCameraFrame())
+            camera_disp = CameraDisplay(camera_geom)
+            camera_disp.image = image
+            camera_disp.cmap = plt.cm.coolwarm
+            camera_disp.add_colorbar()
+            abs_max = np.max(np.abs(image))
+            camera_disp.set_limits_minmax(-abs_max, abs_max)
+            plt.title(title)
+            plt.show()
+            plt.tight_layout()
+            plt.savefig(f'{save_dir}/event_{array_event.index.event_id}.png')
+
         in_range = (image >= self.min_flatfield_adc) & (image <= self.max_flatfield_adc)
         n_in_range = np.count_nonzero(in_range)
 
@@ -1011,6 +1036,11 @@ class LSTEventSource(EventSource):
                     'Setting event type of event'
                     f' {array_event.index.event_id} to FLATFIELD'
                 )
+                if self.event_tagging_counter % 200 == 0:
+                    plot_camera_display(
+                        title=f'Event {array_event.index.event_id} tagged as FLATFIELD by heuristic',
+                        save_dir='ff_heuristic_success'
+                    )
             else:
                 array_event.trigger.event_type = EventType.UNKNOWN
                 self.log.warning(
@@ -1029,6 +1059,10 @@ class LSTEventSource(EventSource):
                 f'  {np.count_nonzero(~min_okay)} pixels have a smaller summed ADC than the minimum limit {self.min_flatfield_adc}.\n'
                 f'  {np.count_nonzero(~max_okay)} pixels have a larger summed ADC than the maximal limit {self.max_flatfield_adc}.\n'
             )
+            plot_camera_display(
+                title=f'Event {array_event.index.event_id} tagged as FLATFIELD but does not look like one',
+                save_dir='ff_heuristic_fail'
+                )
 
     def fill_pointing_info(self, array_event):
         tel_id = self.tel_id
