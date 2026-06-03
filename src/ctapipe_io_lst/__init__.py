@@ -102,7 +102,7 @@ def get_channel_info(pixel_status):
         2: low-gain read out
         3: both gains read out
     '''
-    return (pixel_status & Pixel2Status.BOTH_GAINS_STORED) >> 2
+    return (pixel_status & PixelStatus.BOTH_GAINS_STORED) >> 2
 
 
 def load_camera_geometry():
