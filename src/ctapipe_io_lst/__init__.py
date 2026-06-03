@@ -1016,7 +1016,7 @@ class LSTEventSource(EventSource):
                 camera_geom,
                 image=image,
                 cmap=plt.cm.coolwarm,
-                title=title
+                title=title,
                 ax=ax
                 )
             camera_disp.add_colorbar()
