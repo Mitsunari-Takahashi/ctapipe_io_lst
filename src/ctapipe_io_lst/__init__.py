@@ -1023,8 +1023,8 @@ class LSTEventSource(EventSource):
             abs_max = np.max(np.abs(image))
             camera_disp.set_limits_minmax(-abs_max, abs_max)
             fig.tight_layout()
-            plt.show()
-            plt.savefig(f'{save_dir}/event_{array_event.index.event_id}.png')
+            fig.savefig(f'{save_dir}/event_{array_event.index.event_id}.png')
+            plt.close(fig)
 
         in_range = (image >= self.min_flatfield_adc) & (image <= self.max_flatfield_adc)
         n_in_range = np.count_nonzero(in_range)
