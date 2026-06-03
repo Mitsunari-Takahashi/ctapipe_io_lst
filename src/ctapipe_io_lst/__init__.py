@@ -1009,18 +1009,21 @@ class LSTEventSource(EventSource):
 
         self.event_tagging_counter += 1
         def plot_camera_display(title, save_dir):
-            plt.figure()
+            fig, ax = plt.subplots()
             camera_geom = load_camera_geometry()
             camera_geom = camera_geom.transform_to(EngineeringCameraFrame())
-            camera_disp = CameraDisplay(camera_geom)
-            camera_disp.image = image
-            camera_disp.cmap = plt.cm.coolwarm
+            camera_disp = CameraDisplay(
+                camera_geom,
+                image=image,
+                cmap=plt.cm.coolwarm,
+                title=title
+                ax=ax
+                )
             camera_disp.add_colorbar()
             abs_max = np.max(np.abs(image))
             camera_disp.set_limits_minmax(-abs_max, abs_max)
-            plt.title(title)
+            fig.tight_layout()
             plt.show()
-            plt.tight_layout()
             plt.savefig(f'{save_dir}/event_{array_event.index.event_id}.png')
 
         in_range = (image >= self.min_flatfield_adc) & (image <= self.max_flatfield_adc)
