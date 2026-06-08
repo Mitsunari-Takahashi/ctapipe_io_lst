@@ -60,7 +60,7 @@ from .compat import CTAPIPE_GE_0_20, CTAPIPE_GE_0_21
 from ctapipe.coordinates import EngineeringCameraFrame
 from ctapipe.visualization import CameraDisplay
 from matplotlib import pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
+from scipy.stats import norm
 
 __all__ = [
     'LSTEventSource',
@@ -1009,7 +1009,8 @@ class LSTEventSource(EventSource):
 
         self.event_tagging_counter += 1
         def plot_camera_display(title, save_dir):
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(ncols=2, figsize=(10, 5))
+            # Camera map
             camera_geom = load_camera_geometry()
             camera_geom = camera_geom.transform_to(EngineeringCameraFrame())
             camera_disp = CameraDisplay(
@@ -1017,11 +1018,45 @@ class LSTEventSource(EventSource):
                 image=image,
                 cmap=plt.cm.coolwarm,
                 title=title,
-                ax=ax
+                ax=ax[0]
                 )
             camera_disp.add_colorbar()
             abs_max = np.max(np.abs(image))
             camera_disp.set_limits_minmax(-abs_max, abs_max)
+
+            # Summed ADC histogram
+            hist, bin_edges = np.histogram(image.flatten(), bins=100)
+            ax[1].bar(
+                bin_edges[:-1],
+                hist,
+                width=np.diff(bin_edges),
+                align='edge', color='blue', alpha=0.7
+                )
+            ax[1].fill_betweenx(
+                [0, ax[1].get_ylim()[1]],
+                self.min_flatfield_adc, self.max_flatfield_adc,
+                color='green', alpha=0.2,
+                label=f'FF ADC range: {self.min_flatfield_adc:.1f} - {self.max_flatfield_adc:.1f}'
+                )
+            # Quantiles (10%, 50%, and 90%)for reference
+            percentages = [10, 50, 90]
+            quantiles = np.percentile(image.flatten(), percentages)
+            for iq, q in enumerate(quantiles):
+                ax[1].axvline(q, color='orange', linestyle=':', label=f'{percentages[iq]}%: {q:.1f} ADC')
+            # Fit a Gaussian to the histogram for reference
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            mean, std = norm.fit(image.flatten())
+            x_fit = np.linspace(bin_edges[0], bin_edges[-1], 1000)
+            ax[1].plot(
+                x_fit,
+                norm.pdf(x_fit, mean, std) * np.diff(bin_edges)[0] * len(image.flatten()),
+                color='red', linestyle='--',
+                label=f'Gaussian fit: μ={mean:.1f}, σ={std:.1f}'
+                )
+            ax[1].set_xlabel('Summed ADC')
+            ax[1].set_ylabel('Number of pixels')
+            ax[1].legend()
+
             fig.tight_layout()
             fig.savefig(f'{save_dir}/event_{array_event.index.event_id}.png')
             plt.close(fig)
