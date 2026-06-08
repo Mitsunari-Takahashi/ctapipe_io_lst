@@ -633,7 +633,7 @@ class LSTEventSource(EventSource):
 
         # Open the pixel population table if the path is given, and store it in the monitoring container for later use in the flatfield heuristic
         with open(self.pixel_population_table_path, 'w') as file_output:
-            file_output.write("#event_id, q5, q50, q99, looks_like_flatfield\n")
+            file_output.write("#event_id, q1, q5, q50, q95, q99, looks_like_flatfield\n")
             # loop on events
             for count, (_, zfits_event) in enumerate(self.multi_file):
                 # Skip "empty" events that occur at the end of some runs
@@ -1043,9 +1043,14 @@ class LSTEventSource(EventSource):
                 color='green', alpha=0.2,
                 label=f'FF ADC range: {self.min_flatfield_adc:.1f} - {self.max_flatfield_adc:.1f}'
                 )
-            # Quantiles (5%, 50%, and 99%)for reference
+            # Quantiles (1%, 5%, 50%, 95%, and 99%)for reference
             for iq, q in enumerate(self.quantiles):
-                ax[1].axvline(q, color='orange', linestyle=':', label=f'{self.percentages[iq]}%: {q:.1f} ADC')
+                ax[1].axvline(
+                    q,
+                    ymin=0, ymax=ax[1].get_ylim()[1],
+                    color='orange', linestyle=':',
+                    label=f'{self.percentages[iq]}%: {q:.1f} ADC'
+                    )
             # Fit a Gaussian to the histogram for reference
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             mean, std = norm.fit(image.flatten())
@@ -1069,11 +1074,11 @@ class LSTEventSource(EventSource):
 
         looks_like_ff = n_in_range >= self.min_flatfield_pixel_fraction * image.size
 
-        # Quantiles (5%, 50%, and 99%)for reference
-        self.percentages = [5, 50, 99]
+        # Quantiles (1%, 5%, 50%, 95%, and 99%)for reference
+        self.percentages = [1, 5, 50, 95, 99]
         self.quantiles = np.percentile(image.flatten(), self.percentages)
         file_output.write(
-            f"{array_event.index.event_id}, {self.quantiles[0]}, {self.quantiles[1]}, {self.quantiles[2]}, {looks_like_ff}\n"
+            f"{array_event.index.event_id}, {self.quantiles[0]}, {self.quantiles[1]}, {self.quantiles[2]}, {self.quantiles[3]}, {self.quantiles[4]}, {looks_like_ff}\n"
         )
 
         if looks_like_ff:
