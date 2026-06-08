@@ -633,7 +633,7 @@ class LSTEventSource(EventSource):
 
         # Open the pixel population table if the path is given, and store it in the monitoring container for later use in the flatfield heuristic
         with open(self.pixel_population_table_path, 'w') as file_output:
-            file_output.write("#event_id, q1, q5, q50, q95, q99, looks_like_flatfield\n")
+            file_output.write("#event_id,q1,q5,q50,q95,q99,looks_like_flatfield\n")
             # loop on events
             for count, (_, zfits_event) in enumerate(self.multi_file):
                 # Skip "empty" events that occur at the end of some runs
@@ -1037,8 +1037,9 @@ class LSTEventSource(EventSource):
                 width=np.diff(bin_edges),
                 align='edge', color='blue', alpha=0.7
                 )
+            ymax = hist.max() * 1.1
             ax[1].fill_betweenx(
-                [0, ax[1].get_ylim()[1]],
+                [0, ymax],
                 self.min_flatfield_adc, self.max_flatfield_adc,
                 color='green', alpha=0.2,
                 label=f'FF ADC range: {self.min_flatfield_adc:.1f} - {self.max_flatfield_adc:.1f}'
@@ -1047,7 +1048,7 @@ class LSTEventSource(EventSource):
             for iq, q in enumerate(self.quantiles):
                 ax[1].axvline(
                     q,
-                    ymin=0, ymax=ax[1].get_ylim()[1],
+                    ymin=0, ymax=ymax,
                     color='orange', linestyle=':',
                     label=f'{self.percentages[iq]}%: {q:.1f} ADC'
                     )
@@ -1063,6 +1064,7 @@ class LSTEventSource(EventSource):
                 )
             ax[1].set_xlabel('Summed ADC')
             ax[1].set_ylabel('Number of pixels')
+            ax[1].set_ylim(0, ymax)
             ax[1].legend()
 
             fig.tight_layout()
@@ -1077,9 +1079,6 @@ class LSTEventSource(EventSource):
         # Quantiles (1%, 5%, 50%, 95%, and 99%)for reference
         self.percentages = [1, 5, 50, 95, 99]
         self.quantiles = np.percentile(image.flatten(), self.percentages)
-        file_output.write(
-            f"{array_event.index.event_id}, {self.quantiles[0]}, {self.quantiles[1]}, {self.quantiles[2]}, {self.quantiles[3]}, {self.quantiles[4]}, {looks_like_ff}\n"
-        )
 
         if looks_like_ff:
             # Tag as FF only events with 2-gains waveforms: both gains are needed for calibration
@@ -1094,6 +1093,9 @@ class LSTEventSource(EventSource):
                         title=f'Event {array_event.index.event_id} tagged as FLATFIELD by heuristic',
                         save_dir='ff_heuristic_success'
                     )
+                file_output.write(
+                    f"{array_event.index.event_id}, {self.quantiles[0]}, {self.quantiles[1]}, {self.quantiles[2]}, {self.quantiles[3]}, {self.quantiles[4]}, {looks_like_ff}\n"
+                )                    
             else:
                 array_event.trigger.event_type = EventType.UNKNOWN
                 self.log.warning(
@@ -1116,6 +1118,9 @@ class LSTEventSource(EventSource):
                 title=f'Event {array_event.index.event_id} tagged as FLATFIELD but does not look like one',
                 save_dir='ff_heuristic_fail'
                 )
+            file_output.write(
+                f"{array_event.index.event_id}, {self.quantiles[0]}, {self.quantiles[1]}, {self.quantiles[2]}, {self.quantiles[3]}, {self.quantiles[4]}, {looks_like_ff}\n"
+            )  
 
     def fill_pointing_info(self, array_event):
         tel_id = self.tel_id
