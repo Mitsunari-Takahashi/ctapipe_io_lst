@@ -306,6 +306,7 @@ class LSTEventSource(EventSource):
 
         # For camera display plot of the FLATFIELD events
         self.event_tagging_counter = 0
+        self.pixel_population_table_path = './pixel_population_table.csv'
 
         self.multi_file = MultiFiles(
             self.input_url,
@@ -630,91 +631,94 @@ class LSTEventSource(EventSource):
         # initialize general monitoring container
         mon = self.initialize_mon_container()
 
-        # loop on events
-        for count, (_, zfits_event) in enumerate(self.multi_file):
-            # Skip "empty" events that occur at the end of some runs
-            if zfits_event.event_id == 0:
-                self.log.warning('Event with event_id=0 found, skipping')
-                continue
+        # Open the pixel population table if the path is given, and store it in the monitoring container for later use in the flatfield heuristic
+        with open(self.pixel_population_table_path, 'w') as file_output:
+            file_output.write("#event_id, q5, q50, q99, looks_like_flatfield\n")
+            # loop on events
+            for count, (_, zfits_event) in enumerate(self.multi_file):
+                # Skip "empty" events that occur at the end of some runs
+                if zfits_event.event_id == 0:
+                    self.log.warning('Event with event_id=0 found, skipping')
+                    continue
 
 
 
-            # container for LST data
-            array_event = LSTArrayEventContainer(
-                count=count,
-                index=EventIndexContainer(
-                    obs_id=self.local_run_id,
-                    event_id=zfits_event.event_id,
-                ),
-                mon=mon,
-            )
-            array_event.meta['input_url'] = self.input_url
-            array_event.meta['max_events'] = self.max_events
-            array_event.meta['origin'] = 'LSTCAM'
+                # container for LST data
+                array_event = LSTArrayEventContainer(
+                    count=count,
+                    index=EventIndexContainer(
+                        obs_id=self.local_run_id,
+                        event_id=zfits_event.event_id,
+                    ),
+                    mon=mon,
+                )
+                array_event.meta['input_url'] = self.input_url
+                array_event.meta['max_events'] = self.max_events
+                array_event.meta['origin'] = 'LSTCAM'
 
-            array_event.lst.tel[self.tel_id].svc = self.lst_service
+                array_event.lst.tel[self.tel_id].svc = self.lst_service
 
-            if self.cta_r1:
-                self.fill_from_cta_r1(array_event, zfits_event)
-            else:
-                self.fill_r0r1_container(array_event, zfits_event)
-                self.fill_lst_event_container(array_event, zfits_event)
-                self.fill_trigger_info(array_event)
+                if self.cta_r1:
+                    self.fill_from_cta_r1(array_event, zfits_event)
+                else:
+                    self.fill_r0r1_container(array_event, zfits_event)
+                    self.fill_lst_event_container(array_event, zfits_event)
+                    self.fill_trigger_info(array_event)
 
-            self.fill_mon_container(array_event, zfits_event)
+                self.fill_mon_container(array_event, zfits_event)
 
-            # apply correction before the rest, so corrected time is used e.g. for pointing
-            if self._event_time_correction is not None:
-                array_event.trigger.time += self._event_time_correction
-                for tel_trigger in array_event.trigger.tel.values():
-                    tel_trigger.time += self._event_time_correction
+                # apply correction before the rest, so corrected time is used e.g. for pointing
+                if self._event_time_correction is not None:
+                    array_event.trigger.time += self._event_time_correction
+                    for tel_trigger in array_event.trigger.tel.values():
+                        tel_trigger.time += self._event_time_correction
 
-            if self.pointing_information:
-                self.fill_pointing_info(array_event)
+                if self.pointing_information:
+                    self.fill_pointing_info(array_event)
 
-            # apply low level corrections
-            self.r0_r1_calibrator.update_first_capacitors(array_event)
-            tdp_action = array_event.lst.tel[self.tel_id].evt.tdp_action
-            is_calibrated = False
-            if tdp_action is not None:
-                tdp_action = EVBPreprocessingFlag(int(tdp_action))
-                is_calibrated = EVBPreprocessingFlag.PE_CALIBRATION in tdp_action
+                # apply low level corrections
+                self.r0_r1_calibrator.update_first_capacitors(array_event)
+                tdp_action = array_event.lst.tel[self.tel_id].evt.tdp_action
+                is_calibrated = False
+                if tdp_action is not None:
+                    tdp_action = EVBPreprocessingFlag(int(tdp_action))
+                    is_calibrated = EVBPreprocessingFlag.PE_CALIBRATION in tdp_action
 
-            if self.apply_drs4_corrections and not is_calibrated:
-                self.r0_r1_calibrator.apply_drs4_corrections(array_event)
-                # flat field tagging is performed on r1 data, so can only
-                # be done after the drs4 corrections are applied
-                # it also assumes uncalibrated data, so cannot be done if EVB
-                # already calibrated the data
-                if self.use_flatfield_heuristic:
-                    self.tag_flatfield_events(array_event)
+                if self.apply_drs4_corrections and not is_calibrated:
+                    self.r0_r1_calibrator.apply_drs4_corrections(array_event)
+                    # flat field tagging is performed on r1 data, so can only
+                    # be done after the drs4 corrections are applied
+                    # it also assumes uncalibrated data, so cannot be done if EVB
+                    # already calibrated the data
+                    if self.use_flatfield_heuristic:
+                        self.tag_flatfield_events(array_event, file_output=file_output)
 
-            if self.pedestal_ids is not None:
-                self.check_interleaved_pedestal(array_event)
+                if self.pedestal_ids is not None:
+                    self.check_interleaved_pedestal(array_event)
 
-            # gain select and calibrate to pe
-            if not is_calibrated and self.r0_r1_calibrator.calibration_path is not None:
-                # skip flatfield and pedestal events if asked
-                if (
-                    self.calibrate_flatfields_and_pedestals
-                    or array_event.trigger.event_type not in {EventType.FLATFIELD, EventType.SKY_PEDESTAL}
-                ):
-                    self.r0_r1_calibrator.calibrate(array_event)
+                # gain select and calibrate to pe
+                if not is_calibrated and self.r0_r1_calibrator.calibration_path is not None:
+                    # skip flatfield and pedestal events if asked
+                    if (
+                        self.calibrate_flatfields_and_pedestals
+                        or array_event.trigger.event_type not in {EventType.FLATFIELD, EventType.SKY_PEDESTAL}
+                    ):
+                        self.r0_r1_calibrator.calibrate(array_event)
 
-            # dl1 and drs4 timeshift needs to be filled always
-            self.r0_r1_calibrator.fill_time_correction(array_event)
+                # dl1 and drs4 timeshift needs to be filled always
+                self.r0_r1_calibrator.fill_time_correction(array_event)
 
-            # since ctapipe 0.21, waveform is always 3d, also for gain selected data
-            # FIXME: this is the easiest solution to keep compatibility for ctapipe < 0.21
-            # once we drop all version < 0.21, the proper solution would be to directly fill
-            # the correct shape
-            if CTAPIPE_GE_0_21:
-                for c in (array_event.r0, array_event.r1):
-                    for tel_c in c.tel.values():
-                        if tel_c.waveform is not None and tel_c.waveform.ndim == 2:
-                            tel_c.waveform = tel_c.waveform[np.newaxis, ...]
+                # since ctapipe 0.21, waveform is always 3d, also for gain selected data
+                # FIXME: this is the easiest solution to keep compatibility for ctapipe < 0.21
+                # once we drop all version < 0.21, the proper solution would be to directly fill
+                # the correct shape
+                if CTAPIPE_GE_0_21:
+                    for c in (array_event.r0, array_event.r1):
+                        for tel_c in c.tel.values():
+                            if tel_c.waveform is not None and tel_c.waveform.ndim == 2:
+                                tel_c.waveform = tel_c.waveform[np.newaxis, ...]
 
-            yield array_event
+                yield array_event
 
     @staticmethod
     def is_compatible(file_path):
@@ -988,7 +992,7 @@ class LSTEventSource(EventSource):
         if CTAPIPE_GE_0_20:
             array_event.r1.tel[tel_id].event_type = trigger.event_type
 
-    def tag_flatfield_events(self, array_event):
+    def tag_flatfield_events(self, array_event, file_output):
         '''
         Use a heuristic based on R1 waveforms to recognize flat field events
 
@@ -1010,6 +1014,7 @@ class LSTEventSource(EventSource):
         self.event_tagging_counter += 1
         def plot_camera_display(title, save_dir):
             fig, ax = plt.subplots(ncols=2, figsize=(10, 5))
+            fig.suptitle(title)
             # Camera map
             camera_geom = load_camera_geometry()
             camera_geom = camera_geom.transform_to(EngineeringCameraFrame())
@@ -1017,7 +1022,7 @@ class LSTEventSource(EventSource):
                 camera_geom,
                 image=image,
                 cmap=plt.cm.coolwarm,
-                title=title,
+                # title=title,
                 ax=ax[0]
                 )
             camera_disp.add_colorbar()
@@ -1038,11 +1043,9 @@ class LSTEventSource(EventSource):
                 color='green', alpha=0.2,
                 label=f'FF ADC range: {self.min_flatfield_adc:.1f} - {self.max_flatfield_adc:.1f}'
                 )
-            # Quantiles (10%, 50%, and 90%)for reference
-            percentages = [10, 50, 90]
-            quantiles = np.percentile(image.flatten(), percentages)
-            for iq, q in enumerate(quantiles):
-                ax[1].axvline(q, color='orange', linestyle=':', label=f'{percentages[iq]}%: {q:.1f} ADC')
+            # Quantiles (5%, 50%, and 99%)for reference
+            for iq, q in enumerate(self.quantiles):
+                ax[1].axvline(q, color='orange', linestyle=':', label=f'{self.percentages[iq]}%: {q:.1f} ADC')
             # Fit a Gaussian to the histogram for reference
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             mean, std = norm.fit(image.flatten())
@@ -1065,6 +1068,13 @@ class LSTEventSource(EventSource):
         n_in_range = np.count_nonzero(in_range)
 
         looks_like_ff = n_in_range >= self.min_flatfield_pixel_fraction * image.size
+
+        # Quantiles (5%, 50%, and 99%)for reference
+        self.percentages = [5, 50, 99]
+        self.quantiles = np.percentile(image.flatten(), self.percentages)
+        file_output.write(
+            f"{array_event.index.event_id}, {self.quantiles[0]}, {self.quantiles[1]}, {self.quantiles[2]}, {looks_like_ff}\n"
+        )
 
         if looks_like_ff:
             # Tag as FF only events with 2-gains waveforms: both gains are needed for calibration
